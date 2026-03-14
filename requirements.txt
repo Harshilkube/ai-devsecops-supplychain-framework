@@ -13,3 +13,8 @@ category_encoders>=2.5.0
 docker>=6.0.0
 kubernetes>=23.6.0
 locust>=2.8.6
+
+# Supply chain security (NEW)
+networkx>=2.8.0
+python-Levenshtein>=0.20.0
+requests>=2.28.0
