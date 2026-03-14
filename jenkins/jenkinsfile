@@ -8,6 +8,16 @@ pipeline {
     }
     
     stages {
+
+        stage('Install Security Tools') {
+            steps {
+                sh '''
+                pip install bandit safety networkx scikit-learn
+                curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh
+                '''
+            }
+        }
+
         stage('Test') {
             steps {
                 sh 'python -m pytest tests/'
@@ -20,13 +30,44 @@ pipeline {
                 sh 'safety check'
             }
         }
+
+        // NEW STAGE 1
+        stage('Generate SBOM') {
+            steps {
+                sh '''
+                echo "Generating SBOM..."
+                syft dir:. -o json > sbom.json
+                '''
+            }
+        }
+
+        // NEW STAGE 2
+        stage('Build Dependency Graph') {
+            steps {
+                sh '''
+                echo "Analyzing dependencies..."
+                python3 src/supply_chain/dependency_graph.py
+                '''
+            }
+        }
+
+        // NEW STAGE 3
+        stage('Supply Chain AI Security Check') {
+            steps {
+                sh '''
+                echo "Running AI supply chain detection..."
+                python3 src/supply_chain/pipeline_gate.py
+                '''
+            }
+        }
         
         stage('Build & Push') {
             steps {
                 script {
-                    docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
-                    docker.withRegistry('https://${DOCKER_REGISTRY}', 'registry-credentials') {
-                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push()
+                    def customImage = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'registry-credentials') {
+                        customImage.push()
                     }
                 }
             }
@@ -36,8 +77,9 @@ pipeline {
             steps {
                 sh """
                     kubectl apply -f deploy/kubernetes/threat-detector.yaml
+                    
                     kubectl set image deployment/threat-detector \
-                        threat-detector=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                    threat-detector=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
                 """
             }
         }
